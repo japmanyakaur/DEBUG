@@ -1,17 +1,3 @@
-"""
-Demo Service
-
-This FastAPI service intentionally simulates:
-- latency
-- intermittent failures
-- complete crashes
-
-It emits structured logs with a request_id so the
-Debug Platform can automatically correlate incidents
-with relevant logs.
-"""
-
-
 import time
 import random
 import uuid
@@ -23,7 +9,7 @@ app = FastAPI()
 
 SERVICE_NAME = "demo-service"
 
-
+# Middleware to attach request_id
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
     request.state.request_id = str(uuid.uuid4())
