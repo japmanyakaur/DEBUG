@@ -6,26 +6,38 @@ from fastapi import FastAPI, Request
 from logger import send_log
 
 app = FastAPI()
-
 SERVICE_NAME = "demo-service"
 
-# Middleware to attach request_id
+
+# -----------------------------
+# Middleware: add request_id
+# -----------------------------
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
+    """
+    Every incoming request gets a unique request_id.
+    This helps us correlate logs later.
+    """
     request.state.request_id = str(uuid.uuid4())
     response = await call_next(request)
     return response
 
 
+# -----------------------------
+# Health endpoint (PingWatch)
+# -----------------------------
 @app.get("/health")
 async def health(request: Request):
+    """
+    Randomly becomes slow to simulate performance issues.
+    """
     delay = 3 if random.random() < 0.3 else 0.05
     time.sleep(delay)
 
     send_log({
         "service_name": SERVICE_NAME,
         "level": "INFO",
-        "message": "Health check ping",
+        "message": "Health check successful",
         "timestamp": time.time(),
         "request_id": request.state.request_id,
         "endpoint": "/health"
@@ -34,11 +46,15 @@ async def health(request: Request):
     return {"status": "ok"}
 
 
+# -----------------------------
+# Payment endpoint
+# -----------------------------
 @app.post("/pay")
 async def pay(request: Request):
-    fail = random.random() < 0.4
-
-    if fail:
+    """
+    Randomly fails to simulate backend issues.
+    """
+    if random.random() < 0.4:
         send_log({
             "service_name": SERVICE_NAME,
             "level": "ERROR",
@@ -61,8 +77,15 @@ async def pay(request: Request):
     return {"status": "payment success"}
 
 
+# -----------------------------
+# Crash endpoint (demo only)
+# -----------------------------
 @app.post("/crash")
 async def crash(request: Request):
+    """
+    Immediately crashes the service.
+    Used to demo incidents.
+    """
     send_log({
         "service_name": SERVICE_NAME,
         "level": "ERROR",
