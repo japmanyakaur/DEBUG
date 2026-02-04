@@ -1,67 +1,62 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from sqlalchemy import Column, Integer, String, Float
-from database import Base, engine, SessionLocal
-from models import LogDB
+from fastapi import FastAPI, Depends
+from sqlalchemy.orm import Session
+from datetime import datetime
+from database import SessionLocal, engine
+from models import Base, Log
+from incident_brain import process_log
+from models import Incident
 
-app = FastAPI()
+from datetime import timedelta
+
+
+
 
 Base.metadata.create_all(bind=engine)
 
-# Incident table
+app = FastAPI(title="LogLite Backend")
 
-
-class Incident(Base):
-    __tablename__ = "incidents"
-    __table_args__ = {"extend_existing": True}
-
-    id = Column(Integer, primary_key=True, index=True)
-    service_name = Column(String)
-    start_time = Column(Float)
-    status = Column(String)
-
-class Log(BaseModel):
-    service_name: str
-    level: str
-    message: str
-    timestamp: float
-    request_id: str
-    endpoint: str
-
-
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+@app.get("/incidents")
+def list_incidents(db: Session = Depends(get_db)):
+    return db.query(Incident).order_by(Incident.start_time.desc()).all()
 @app.post("/logs")
-async def receive_log(log: Log):
-    db = SessionLocal()
+def ingest_logs(log: dict, db: Session = Depends(get_db)):
+    log_entry = Log(
+        service_name=log["service_name"],
+        level=log["level"],
+        message=log["message"],
+        timestamp=datetime.fromisoformat(log["timestamp"]),
+        request_id=log["request_id"],
+        endpoint=log["endpoint"]
+    )
 
-    db_log = LogDB(**log.dict())
-    db.add(db_log)
+    db.add(log_entry)
     db.commit()
+    db.refresh(log_entry)
 
-    print("LOG SAVED TO DB")
+    process_log(db, log_entry)
 
-    # 🚨 Incident detection
-    if log.level == "ERROR":
-        recent_errors = db.query(LogDB).filter(
-            LogDB.service_name == log.service_name,
-            LogDB.level == "ERROR",
-            LogDB.timestamp >= log.timestamp - 60
-        ).count()
+    return {"status": "log stored"}
+@app.get("/incidents/{incident_id}/logs")
+def incident_logs(incident_id: int, db: Session = Depends(get_db)):
+    incident = db.query(Incident).filter(Incident.id == incident_id).first()
 
-        if recent_errors >= 3:
-            incident = Incident(
-                service_name=log.service_name,
-                start_time=log.timestamp,
-                status="ACTIVE"
-            )
-            db.add(incident)
-            db.commit()
-            print("🚨 INCIDENT CREATED")
+    if not incident:
+        return []
 
-    return {"status": "ok"}
+    start = incident.start_time - timedelta(seconds=30)
+    end = incident.start_time + timedelta(seconds=60)
 
+    logs = db.query(Log).filter(
+        Log.service_name == incident.service_name,
+        Log.timestamp >= start,
+        Log.timestamp <= end,
+        Log.level.in_(["ERROR", "WARN"])
+    ).order_by(Log.timestamp.asc()).all()
 
-@app.get("/logs")
-def get_logs():
-    db = SessionLocal()
-    logs = db.query(LogDB).all()
     return logs

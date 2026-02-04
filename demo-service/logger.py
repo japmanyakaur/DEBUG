@@ -1,13 +1,16 @@
 import requests
+from datetime import datetime
 
-LOG_BACKEND_URL = "http://127.0.0.1:8000/logs"
+BACKEND_URL = "http://localhost:8000/logs"
 
-def send_log(log: dict):
-    try:
-        requests.post(
-            LOG_BACKEND_URL,
-            json=log,
-            timeout=1
-        )
-    except Exception:
-        print("Failed to send log")
+def send_log(service, level, message, request_id, endpoint):
+    payload = {
+        "service_name": service,
+        "level": level,
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat(),
+        "request_id": request_id,
+        "endpoint": endpoint
+    }
+
+    requests.post(BACKEND_URL, json=payload)
