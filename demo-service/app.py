@@ -7,12 +7,19 @@ from logger import send_log
 app = FastAPI()
 SERVICE_NAME = "demo-service"
 
+
+# -----------------------------
+# Add request_id to every request
+# -----------------------------
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
     request.state.request_id = str(uuid.uuid4())
-    response = await call_next(request)
-    return response
+    return await call_next(request)
 
+
+# -----------------------------
+# Health endpoint
+# -----------------------------
 @app.get("/health")
 def health(request: Request):
     delay = random.uniform(0.1, 1.5)
@@ -25,8 +32,13 @@ def health(request: Request):
         request.state.request_id,
         "/health"
     )
-    return {"status": "ok"}
 
+    return {"status": "ok", "latency": delay}
+
+
+# -----------------------------
+# Payment endpoint
+# -----------------------------
 @app.post("/pay")
 def pay(request: Request):
     if random.random() < 0.5:
@@ -48,12 +60,16 @@ def pay(request: Request):
     )
     return {"status": "success"}
 
+
+# -----------------------------
+# Crash endpoint (controlled crash)
+# -----------------------------
 @app.get("/crash")
 def crash(request: Request):
     send_log(
         SERVICE_NAME,
         "ERROR",
-        "Service crashed hard",
+        "Service crashed intentionally",
         request.state.request_id,
         "/crash"
     )

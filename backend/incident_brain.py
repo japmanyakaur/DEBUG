@@ -1,16 +1,21 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 from sqlalchemy.orm import Session
 from models import Incident, Log
 
 ERROR_THRESHOLD = 3
 TIME_WINDOW_SECONDS = 30
 
+
 def process_log(db: Session, log: Log):
+    """
+    Creates an incident if ERROR threshold is exceeded.
+    Decision is based on LOG TIME, not current system time.
+    """
+
     if log.level != "ERROR":
         return
 
-    now = datetime.utcnow()
-    window_start = now - timedelta(seconds=TIME_WINDOW_SECONDS)
+    window_start = log.timestamp - timedelta(seconds=TIME_WINDOW_SECONDS)
 
     recent_errors = db.query(Log).filter(
         Log.service_name == log.service_name,
@@ -32,8 +37,14 @@ def process_log(db: Session, log: Log):
     incident = Incident(
         service_name=log.service_name,
         incident_type="DOWN",
-        start_time=now
+        start_time=log.timestamp
     )
 
     db.add(incident)
     db.commit()
+
+    print(
+        f"🚨 INCIDENT CREATED | "
+        f"{log.service_name} | "
+        f"{recent_errors} errors in {TIME_WINDOW_SECONDS}s"
+    )

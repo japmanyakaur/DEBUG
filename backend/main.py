@@ -1,50 +1,83 @@
 from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timedelta
+from pydantic import BaseModel
+
 from database import SessionLocal, engine
-from models import Base, Log
+from models import Base, Log, Incident
 from incident_brain import process_log
-from models import Incident
-
-from datetime import timedelta
-
-
-
-
-Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="LogLite Backend")
 
+Base.metadata.create_all(bind=engine)
+
+
+# -----------------------------
+# Database dependency
+# -----------------------------
 def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
-@app.get("/incidents")
-def list_incidents(db: Session = Depends(get_db)):
-    return db.query(Incident).order_by(Incident.start_time.desc()).all()
+
+
+# -----------------------------
+# Input validation
+# -----------------------------
+class LogInput(BaseModel):
+    service_name: str
+    level: str
+    message: str
+    timestamp: str
+    request_id: str
+    endpoint: str
+
+
+# -----------------------------
+# Ingest logs
+# -----------------------------
 @app.post("/logs")
-def ingest_logs(log: dict, db: Session = Depends(get_db)):
+def ingest_logs(log: LogInput, db: Session = Depends(get_db)):
     log_entry = Log(
-        service_name=log["service_name"],
-        level=log["level"],
-        message=log["message"],
-        timestamp=datetime.fromisoformat(log["timestamp"]),
-        request_id=log["request_id"],
-        endpoint=log["endpoint"]
+        service_name=log.service_name,
+        level=log.level,
+        message=log.message,
+        timestamp=datetime.fromisoformat(log.timestamp),
+        request_id=log.request_id,
+        endpoint=log.endpoint
     )
 
     db.add(log_entry)
     db.commit()
     db.refresh(log_entry)
 
+    print(f"📥 Log stored: {log.level} | {log.message}")
+
     process_log(db, log_entry)
 
     return {"status": "log stored"}
+
+
+# -----------------------------
+# List incidents
+# -----------------------------
+@app.get("/incidents")
+def list_incidents(db: Session = Depends(get_db)):
+    return db.query(Incident).order_by(
+        Incident.start_time.desc()
+    ).all()
+
+
+# -----------------------------
+# Logs related to an incident
+# -----------------------------
 @app.get("/incidents/{incident_id}/logs")
 def incident_logs(incident_id: int, db: Session = Depends(get_db)):
-    incident = db.query(Incident).filter(Incident.id == incident_id).first()
+    incident = db.query(Incident).filter(
+        Incident.id == incident_id
+    ).first()
 
     if not incident:
         return []
